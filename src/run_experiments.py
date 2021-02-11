@@ -16,14 +16,15 @@ np.random.seed(2020)
 device = 'cuda' if torch.cuda.is_available() else 'cpu' 
 
 args = utils.get_args()
-experiment = args.experiment 
+experiment = args.experiment
 
+experiment = 8
 # Experiment 1: Generate image on the Colored MNIST dataset
 
 if experiment == 1:
 
     figsdir = '../results/images/colored_mnist/example/'
-    os.makedirs(figsdir, exist_ok=True)
+    os.makedirs(figsdir, exist_ok=True) # exist_ok makes function do nothing if directory already exists
 
     input_type = 'image' 
     representation_type = 'image' 
@@ -42,7 +43,7 @@ if experiment == 1:
         input_type=input_type, representation_type=representation_type, output_type=output_type,
         problem=problem, gamma=gamma, input_dim=input_dim, output_dim=output_dim
     ).to(device)
-    network.apply(utils.weight_init)
+    network.apply(utils.weight_init) #apply calls the function recursively to each submodule
     network.train()
     network.fit(trainset,testset,epochs=epochs, batch_size=batch_size, 
         eval_rate=eval_rate, figs_dir=figsdir)
@@ -73,6 +74,8 @@ elif experiment == 2:
     X, T, S = trainset.data, trainset.targets, trainset.hidden  
     random_chance_T = max(np.sum(T == 1) / len(T), 1.0 - np.sum(T == 1) / len(T))  
     random_chance_S = max(np.sum(S == 1) / len(S), 1.0 - np.sum(S == 1) / len(S))
+    #get predictions of S and T before training
+    #returns array of different metrics evaluating predictions
     original_data_metrics_lin = evaluations.evaluate_fair_representations(None, trainset, testset, device, verbose=True, predictor_type='Linear')
     original_data_metrics_rf = evaluations.evaluate_fair_representations(None, trainset, testset, device, verbose=True, predictor_type='RandomForest')
     original_data_metrics_dummy = evaluations.evaluate_fair_representations(None, trainset, testset, device, verbose=True, predictor_type='Dummy')
@@ -83,6 +86,7 @@ elif experiment == 2:
     np.save(logsdir+'original_data_metrics_dummy',original_data_metrics_dummy)
 
     N = 30
+    #30 points from 1 to 50 on a log10 scale
     betas = np.logspace(0,np.log10(50),N)
     IXY = np.zeros(N)
     IYT_given_S = np.zeros(N)
@@ -90,6 +94,7 @@ elif experiment == 2:
     metrics_rf = np.zeros((N, 5))
     ISY = np.zeros(N)
 
+    #enumerate returns (count,original item from list)
     for i, beta in enumerate(betas):
 
         # Train the network 
@@ -110,10 +115,11 @@ elif experiment == 2:
         metrics_rf[i] = evaluations.evaluate_fair_representations(network.encoder, trainset, testset, device, verbose=True, predictor_type='RandomForest')
         X, T, S = testset.data, testset.targets, testset.hidden  
         Y, Y_mean = network.encoder(torch.FloatTensor(X).to(device)) 
-        mine_network = mine.MINE(1,representation_dim, hidden_size=100, moving_average_rate=0.1).to(device)
-        print('MINE calculations...')
-        ISY[i] = mine_network.train(S, Y.detach().cpu().numpy(), batch_size = 2*batch_size, n_iterations=int(5e4), n_verbose=-1, n_window=100, save_progress=-1)
-        print(f'ISY: {ISY[i]}')
+        # mine_network = mine.MINE(1,representation_dim, hidden_size=100, moving_average_rate=0.1).to(device)
+        # print('MINE calculations...')
+        # #estimate I(S;Y)
+        # ISY[i] = mine_network.train(S, Y.detach().cpu().numpy(), batch_size = 2*batch_size, n_iterations=int(5e4), n_verbose=-1, n_window=100, save_progress=-1)
+        # print(f'ISY: {ISY[i]}')
     
     np.save(logsdir+'betas',betas)
     np.save(logsdir+'IXY',IXY)
@@ -121,6 +127,91 @@ elif experiment == 2:
     np.save(logsdir+'ISY',ISY)
     np.save(logsdir+'metrics_lin',metrics_lin)
     np.save(logsdir+'metrics_rf',metrics_rf)
+
+# Experiment 8: Fairness on Mental Health
+elif experiment == 8:
+
+    figsdir = '../results/images/mh/fairness/'
+    logsdir = '../results/logs/mh/fairness/'
+    os.makedirs(figsdir, exist_ok=True) #makes dir if doesn't exist, does nothing if exists
+    os.makedirs(logsdir, exist_ok=True)
+
+    input_type = 'vector'
+    representation_type = 'vector'
+    output_type = ['binary']
+    output_dim = [1]
+    problem = 'fairness'
+    input_dim = 9
+    eval_rate = 1000
+    epochs = 150
+    batch_size = 1024
+    representation_dim = 2
+    verbose = False
+
+    trainset, testset = utils.get_mh()
+    # Get information of the data
+    X, T, S = trainset.data, trainset.targets, trainset.hidden
+    random_chance_T = max(np.sum(T == 1) / len(T), 1.0 - np.sum(T == 1) / len(T))
+    random_chance_S = max(np.sum(S == 1) / len(S), 1.0 - np.sum(S == 1) / len(S))
+    # get predictions of S and T before training
+    # returns array of different metrics evaluating predictions
+    original_data_metrics_lin = evaluations.evaluate_fair_representations(None, trainset, testset, device, verbose=True,
+                                                                          predictor_type='Linear')
+    original_data_metrics_rf = evaluations.evaluate_fair_representations(None, trainset, testset, device, verbose=True,
+                                                                         predictor_type='RandomForest')
+    original_data_metrics_dummy = evaluations.evaluate_fair_representations(None, trainset, testset, device,
+                                                                            verbose=True, predictor_type='Dummy')
+    np.save(logsdir + 'random_chance_t', random_chance_T)
+    np.save(logsdir + 'random_chance_s', random_chance_S)
+    np.save(logsdir + 'original_data_metrics_lin', original_data_metrics_lin)
+    np.save(logsdir + 'original_data_metrics_rf', original_data_metrics_rf)
+    np.save(logsdir + 'original_data_metrics_dummy', original_data_metrics_dummy)
+
+    N = 30
+    # 30 points from 1 to 50 on a log10 scale
+    betas = np.logspace(0, np.log10(50), N)
+    IXY = np.zeros(N)
+    IYT_given_S = np.zeros(N)
+    metrics_lin = np.zeros((N, 5))
+    metrics_rf = np.zeros((N, 5))
+    ISY = np.zeros(N)
+
+    # enumerate returns (count,original item from list)
+    for i, beta in enumerate(betas):
+        # Train the network
+        network = variational_privacy_fairness.VPAF(
+            input_type=input_type, representation_type=representation_type, output_type=output_type,
+            problem=problem, beta=beta, input_dim=input_dim, representation_dim=representation_dim,
+            output_dim=output_dim
+        ).to(device)
+        network.apply(utils.weight_init)
+        network.train()
+        network.fit(trainset, testset, batch_size=batch_size,
+                    epochs=epochs, eval_rate=eval_rate, verbose=verbose)
+
+        # Evaluate the representations performance
+        network.eval()
+        IXY[i], IYT_given_S[i] = network.evaluate(testset, True, '')
+        metrics_lin[i] = evaluations.evaluate_fair_representations(network.encoder, trainset, testset, device,
+                                                                   verbose=True, predictor_type='Linear')
+        metrics_rf[i] = evaluations.evaluate_fair_representations(network.encoder, trainset, testset, device,
+                                                                  verbose=True, predictor_type='RandomForest')
+        X, T, S = testset.data, testset.targets, testset.hidden
+        Y, Y_mean = network.encoder(torch.FloatTensor(X).to(device))
+        # mine_network = mine.MINE(1,representation_dim, hidden_size=100, moving_average_rate=0.1).to(device)
+        # print('MINE calculations...')
+        # #estimate I(S;Y)
+        # ISY[i] = mine_network.train(S, Y.detach().cpu().numpy(), batch_size = 2*batch_size, n_iterations=int(5e4), n_verbose=-1, n_window=100, save_progress=-1)
+        # print(f'ISY: {ISY[i]}')
+
+    np.save(logsdir + 'betas', betas)
+    np.save(logsdir + 'IXY', IXY)
+    np.save(logsdir + 'ITY_given_S', IYT_given_S)
+    np.save(logsdir + 'ISY', ISY)
+    np.save(logsdir + 'metrics_lin', metrics_lin)
+    np.save(logsdir + 'metrics_rf', metrics_rf)
+
+
 
 # Experiment 2: Fairness on the Colored MNIST dataset 
 

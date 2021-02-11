@@ -14,12 +14,14 @@ def get_accuracy(logits, target, target_vals):
     accuracy = torch.sum(pred_target == target.long()).float() / target.shape[0]
     return accuracy
 
+
 def get_accuracy_numpy(probs, target):
 
     pred_target = np.argmax(probs,1) # also works with logits
 
     accuracy = np.sum(pred_target == target).astype(float) / target.shape[0]
     return accuracy
+
 
 def get_cross_entropy(proba, target):
 
@@ -42,6 +44,7 @@ def get_discrimination(logits, target, hidden):
 
 def get_discrimination_numpy(probs, target, hidden):
 
+    #maximum value in each row (reduce columns)
     pred_target = np.argmax(probs,1)
 
     pred_pos_s_1 = np.sum((pred_target == 1) & (hidden == 1)).astype(float)
