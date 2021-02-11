@@ -47,12 +47,17 @@ def evaluate_fair_representations(encoder, train_dataset, test_dataset, device, 
     error_gap = metrics.get_error_gap_numpy(t_pred_prob, T, S)
     equalized_odds = metrics.get_eq_odds_gap_numpy(t_pred_prob, T, S)
 
+    acc_gap = metrics.get_acc_gap_numpy(t_pred_prob, T, S)
+
     
     print(f'Accuracy ({predictor_type}): {accuracy}') if verbose else 0 
     print(f'Accuracy on S ({predictor_type}): {accuracy_s}') if verbose else 0 
     print(f'Discrimination ({predictor_type}): {discrimination}') if verbose else 0 
     print(f'Error gap ({predictor_type}): {error_gap}') if verbose else 0 
-    print(f'Equalized odds gap ({predictor_type}): {equalized_odds}') if verbose else 0 
+    print(f'Equalized odds gap ({predictor_type}): {equalized_odds}') if verbose else 0
+
+    print(f'Accuracy gap ({predictor_type}): {acc_gap}') if verbose else 0
+
 
     if encoder is not None:
         encoder = encoder.to(device)
