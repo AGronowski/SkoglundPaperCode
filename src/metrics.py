@@ -83,19 +83,6 @@ def get_error_gap_numpy(probs, target, hidden):
     
     return error_gap
 
-
-def get_acc_gap_numpy(probs, target, hidden):
-    pred_target = np.argmax(probs, 1)
-
-    s_1 = (hidden == 1)
-    s_0 = (hidden == 0)
-
-    acc_1 = np.sum(pred_target[s_1] == target[s_1]).astype(float) / (np.sum(s_1.astype(int)).astype(float) + 1e-10)
-    acc_0 = np.sum(pred_target[s_0] == target[s_0]).astype(float) / (np.sum(s_0.astype(int)).astype(float) + 1e-10)
-    acc_gap = np.abs(acc_1 - acc_0)
-
-    return acc_gap
-
 def get_eq_odds_gap(logits, target, hidden):
 
     t_1 = (target == 1)

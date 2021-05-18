@@ -1,6 +1,6 @@
 import torch, torchvision 
 from progressbar import progressbar
-from networks import Encoder, Decoder
+from networks import Encoder, Decoder, Decoder2
 import metrics
 from mutual_information import get_conditional_entropy, get_entropy
 from kde_estimation import KDE_IXY_estimation
@@ -17,24 +17,35 @@ torch.manual_seed(2020)
 class VPAF(torch.nn.Module):
 
     def __init__(self, input_type='image', representation_type='image', output_type=['image'], s_type='classes', input_dim=104, \
-            representation_dim=8, output_dim=[1], s_dim=1, problem='privacy', beta=1.0, gamma=1.0, prior_type='Gaussian'):
+            representation_dim=8, output_dim=[1], s_dim=1, problem='privacy', beta=0.0, beta2=0.0, gamma=1.0, prior_type='Gaussian'):
         super(VPAF,self).__init__() 
 
         self.problem = problem   
         self.param = gamma if self.problem == 'privacy' else beta
-        self.input_type = input_type
-        self.representation_type = representation_type
-        self.output_type = output_type  
-        self.output_dim = output_dim
-        self.s_type = s_type
-        self.prior_type=prior_type
+        self.param2 = beta2
+        self.input_type = input_type  #vector or image
+        self.representation_type = representation_type #vector for mh
+        self.output_type = output_type  #['binary'] for mh
+        self.output_dim = output_dim #[1] for mh
+        self.s_type = s_type #'classes'
+        self.prior_type=prior_type #'Gaussian'
 
         self.encoder = Encoder(input_type, representation_type, input_dim, representation_dim) 
         self.decoder = Decoder(representation_type, output_type, representation_dim, output_dim, s_dim=s_dim)
+        self.decoder2 = Decoder2(representation_dim,output_dim) #rep_dim = 2, output_dim = [1] for mh
     
     def get_IXY_ub(self, y_mean, mode='Gaussian'):
 
         if mode == 'Gaussian':
+
+            #ymean is encoder output
+            #self.encoder.y_logvar_theta is ??? starts at -1, then is optimized by gradient descent
+
+            #Z is two dimensional
+            #y_mean, y_mean^w is 981 x 2 tenspr
+            #others are shape 1
+            #sum sums each component in the 981 x 2 tensor giving 1 scalar
+            #
             Dkl = -0.5 * torch.sum(
                 1.0 + self.encoder.y_logvar_theta - torch.pow(y_mean, 2) - torch.exp(self.encoder.y_logvar_theta)
             )
@@ -47,14 +58,17 @@ class VPAF(torch.nn.Module):
 
     def get_H_output_given_SY_ub(self, decoder_output, t):
 
+        #for adult is true, t is binary tensor length 981
         if len(t.shape) == 1:
-            t = t.view(-1,1)
+            t = t.view(-1,1) #t now becomes 2d tensor
 
         H_output_given_SY_ub = 0
         dim_start_out = 0
         dim_start_t = 0
         reg_start = 0
 
+        #zip creates tuples of the two inputs
+        #(binary, 1)
         for output_type_, output_dim_ in zip(self.output_type,self.output_dim):
 
             if output_type_ == 'classes':
@@ -62,12 +76,18 @@ class VPAF(torch.nn.Module):
                 eo = dim_start_out + output_dim_
                 st = dim_start_t
                 et = dim_start_t + 1
+                #tensor.long() converts to 32 bit int
+
                 CE = torch.nn.functional.cross_entropy(decoder_output[:,so:eo], t[:,st:et].long().view(-1), reduction='sum')
-            elif output_type_ == 'binary':
+            elif output_type_ == 'binary': #true for adult
                 so = dim_start_out
                 eo = dim_start_out + 1
                 st = dim_start_t
                 et = dim_start_t + 1
+                #tensor.view(-1) reshapes tensor with unknown number of rows
+                # t is the target Y
+                #t [:,0:1] selects all in 981 x 1 tensor
+                #.view(-1) changes back to 1D tensor
                 CE = torch.nn.functional.binary_cross_entropy_with_logits(decoder_output[:,so:eo].view(-1), t[:,st:et].view(-1), reduction='sum')
             elif output_type_ == 'image':
                 eo = et = 0
@@ -92,6 +112,7 @@ class VPAF(torch.nn.Module):
 
         return H_output_given_SY_ub
 
+
     def evaluate_privacy(self, dataloader, device, N, batch_size, figs_dir, verbose):
 
         IXY_ub = 0
@@ -102,9 +123,11 @@ class VPAF(torch.nn.Module):
 
                 x = x.to(device).float() 
                 t = t.to(device).float() 
-                s = s.to(device).float() 
+                s = s.to(device).float()
 
-                y, y_mean = self.encoder(x) 
+                #intermediate representation Z
+                y, y_mean = self.encoder(x)
+                #prediction Y based on Z and A
                 output = self.decoder(y,s) 
 
                 if self.input_type == 'image' and self.representation_type == 'image' and 'image' in self.output_type and it == 1:
@@ -187,27 +210,49 @@ class VPAF(torch.nn.Module):
             IXY_ub, IYT_given_S_lb = self.evaluate_fairness(dataloader, device, len(dataset), dataset.target_vals, H_T_given_S, verbose)
             return IXY_ub, IYT_given_S_lb
 
-    def train_step(self, batch_size, learning_rate, dataloader, optimizer, verbose):
+    def train_step(self, dataloader, optimizer, verbose):
 
         device = 'cuda' if next(self.encoder.parameters()).is_cuda else 'cpu' 
 
+        #get minibatches of x ,t, s
         for x, t, s in progressbar(dataloader):
 
             x = x.to(device).float() 
             t = t.to(device).float()
-            s = s.to(device).float() 
+            s = s.to(device).float()
 
-            optimizer.zero_grad() 
-            y, y_mean = self.encoder(x)
-            output = self.decoder(y,s)
+            # zero the parameter gradients
+            optimizer.zero_grad()
+
+            # intermediate representation Z
+            # y has noise from standard normal distribution added to it
+            y, y_mean = self.encoder(x) #calls forward method in encoder
+            #compression term to be minimized
             IXY_ub = self.get_IXY_ub(y_mean, self.prior_type)
-            H_output_given_SY_ub = self.get_H_output_given_SY_ub(output, t)
+
+            #negative of accuracy term to be maximized
+
+            # prediction Y based on Z and A
+            output = self.decoder(y,s) #calls forward method in decoder
+            #this is simply binary cross-entropy (negative of the lower bound)
+            H_output_given_SY_ub = self.get_H_output_given_SY_ub(output, t) #t is target - true label
+
+            #prediction Y based just on Z
+            output2 = self.decoder2(y)
+            H_output_given_SY_ub_2 = self.get_H_output_given_SY_ub(output2, t)
+
+            #loss functionb
+            #param is Beta - values from 1 to 50
+
+            #loss = IXY_ub - self.param * H_output_given_SY_ub - self.param2 * H_output_given_SY_ub_2
             loss = IXY_ub + self.param * H_output_given_SY_ub
-            
+            #backward propagation
             loss.backward()
+            #initiate gradient descent
             optimizer.step()
 
 
+    #train the network
     def fit(self, dataset_train, dataset_val, epochs=1000, learning_rate=1e-3, batch_size=1024, eval_rate=15, \
         verbose=True, logs_dir='../results/logs/', figs_dir='../results/images/'):
 
@@ -218,7 +263,9 @@ class VPAF(torch.nn.Module):
 
         for epoch in range(epochs): 
             print(f'Epoch # {epoch+1}')
-            self.train_step(batch_size, learning_rate, dataloader, optimizer, verbose)
+
+            #backward propagation and gradient descent
+            self.train_step(dataloader, optimizer, verbose)
 
             if epoch % eval_rate == eval_rate - 1:
                 print(f'Evaluating TRAIN') if verbose else 0 

@@ -9,9 +9,11 @@ import visualization
 import mine 
 import evaluations
 import os
+from progressbar import progressbar
+from tqdm import tqdm
 
-torch.manual_seed(2020)
-np.random.seed(2020)
+torch.manual_seed(2021)
+np.random.seed(2021)
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu' 
 
@@ -64,7 +66,7 @@ elif experiment == 2:
     problem = 'fairness'
     input_dim = 13
     eval_rate = 1000
-    epochs = 150
+    epochs = 15
     batch_size = 1024
     representation_dim = 2
     verbose=False
@@ -87,30 +89,35 @@ elif experiment == 2:
 
     N = 30
     #30 points from 1 to 50 on a log10 scale
-    betas = np.logspace(0,np.log10(50),N)
+    betas = np.logspace(0,np.log10(100),N)
     IXY = np.zeros(N)
     IYT_given_S = np.zeros(N)
-    metrics_lin = np.zeros((N, 5))
-    metrics_rf = np.zeros((N, 5))
+    metrics_lin = np.zeros((N, 6))
+    metrics_rf = np.zeros((N, 6))
     ISY = np.zeros(N)
 
     #enumerate returns (count,original item from list)
-    for i, beta in enumerate(betas):
+    for i, beta in progressbar(enumerate(betas)):
 
+        print(f"Current iteration {i+1} out of {N}")
         # Train the network 
         network = variational_privacy_fairness.VPAF(
             input_type=input_type, representation_type=representation_type, output_type=output_type, 
-            problem=problem, beta=beta, input_dim=input_dim, representation_dim=representation_dim, 
+            problem=problem, beta=beta,beta2=0, input_dim=input_dim, representation_dim=representation_dim,
             output_dim=output_dim
         ).to(device)
+        #initialize all weights randomly
         network.apply(utils.weight_init)
+        #Sets the module in training mode.
         network.train()
+        #trains the network
         network.fit(trainset, testset, batch_size=batch_size,
             epochs=epochs, eval_rate=eval_rate, verbose=verbose)
 
         # Evaluate the representations performance
         network.eval()
         IXY[i], IYT_given_S[i] = network.evaluate(testset,True,'')
+        #list of the 5 metrics as np array
         metrics_lin[i] = evaluations.evaluate_fair_representations(network.encoder, trainset, testset, device, verbose=True, predictor_type='Linear')
         metrics_rf[i] = evaluations.evaluate_fair_representations(network.encoder, trainset, testset, device, verbose=True, predictor_type='RandomForest')
         X, T, S = testset.data, testset.targets, testset.hidden  
@@ -120,13 +127,20 @@ elif experiment == 2:
         # #estimate I(S;Y)
         # ISY[i] = mine_network.train(S, Y.detach().cpu().numpy(), batch_size = 2*batch_size, n_iterations=int(5e4), n_verbose=-1, n_window=100, save_progress=-1)
         # print(f'ISY: {ISY[i]}')
+
+
+
     
     np.save(logsdir+'betas',betas)
     np.save(logsdir+'IXY',IXY)
     np.save(logsdir+'ITY_given_S',IYT_given_S)
     np.save(logsdir+'ISY',ISY)
-    np.save(logsdir+'metrics_lin',metrics_lin)
-    np.save(logsdir+'metrics_rf',metrics_rf)
+    # np.save(logsdir+'metrics_lin_beta22',metrics_lin) #beta2
+    # np.save(logsdir+'metrics_rf_beta22',metrics_rf)
+    np.save(logsdir+'metrics_lin_beta1',metrics_lin)
+    np.save(logsdir+'metrics_rf_beta1',metrics_rf)
+    np.save(logsdir + 'N', N)
+
 
 # Experiment 8: Fairness on Mental Health
 elif experiment == 8:
@@ -143,7 +157,7 @@ elif experiment == 8:
     problem = 'fairness'
     input_dim = 9
     eval_rate = 1000
-    epochs = 150
+    epochs = 300
     batch_size = 1024
     representation_dim = 2
     verbose = False
@@ -167,21 +181,37 @@ elif experiment == 8:
     np.save(logsdir + 'original_data_metrics_rf', original_data_metrics_rf)
     np.save(logsdir + 'original_data_metrics_dummy', original_data_metrics_dummy)
 
-    N = 30
-    # 30 points from 1 to 50 on a log10 scale
-    betas = np.logspace(0, np.log10(50), N)
+    n = 5
+    points = np.logspace(-2, 2, n)
+    points = np.linspace(-5,-1, n)
+    combinations = [(a, b) for a in points for b in points]
+
+    #N is the number of combinations
+    N = n * n
+    # # 30 points from 1 to 50 on a log10 scale
+    # betas = np.logspace(0, np.log10(50), N)
     IXY = np.zeros(N)
     IYT_given_S = np.zeros(N)
-    metrics_lin = np.zeros((N, 5))
-    metrics_rf = np.zeros((N, 5))
+    metrics_lin = np.zeros((N, 6))
+    metrics_rf = np.zeros((N, 6))
     ISY = np.zeros(N)
 
+
+    beta1s = []
+    beta2s = []
     # enumerate returns (count,original item from list)
-    for i, beta in enumerate(betas):
+    for i, beta in enumerate(combinations):
+
+        beta1 = beta[0]
+        beta2 = beta[1]
+        beta1s.append(beta1)
+        beta2s.append(beta2)
+
+        print(f"Current iteration {i} out of {N}")
         # Train the network
         network = variational_privacy_fairness.VPAF(
             input_type=input_type, representation_type=representation_type, output_type=output_type,
-            problem=problem, beta=beta, input_dim=input_dim, representation_dim=representation_dim,
+            problem=problem, beta=beta1,beta2=beta2, input_dim=input_dim, representation_dim=representation_dim,
             output_dim=output_dim
         ).to(device)
         network.apply(utils.weight_init)
@@ -204,16 +234,21 @@ elif experiment == 8:
         # ISY[i] = mine_network.train(S, Y.detach().cpu().numpy(), batch_size = 2*batch_size, n_iterations=int(5e4), n_verbose=-1, n_window=100, save_progress=-1)
         # print(f'ISY: {ISY[i]}')
 
-    np.save(logsdir + 'betas', betas)
+    np.save(logsdir + 'beta1s', beta1s)
+    np.save(logsdir + 'beta2s', beta2s)
     np.save(logsdir + 'IXY', IXY)
     np.save(logsdir + 'ITY_given_S', IYT_given_S)
     np.save(logsdir + 'ISY', ISY)
-    np.save(logsdir + 'metrics_lin', metrics_lin)
-    np.save(logsdir + 'metrics_rf', metrics_rf)
+    np.save(logsdir + 'metrics_lin_combinedbetas', metrics_lin)
+    # np.save(logsdir + 'metrics_lin_beta1', metrics_lin)
+    # np.save(logsdir + 'metrics_rf_beta1', metrics_rf)
+    # np.save(logsdir + 'metrics_lin_beta2', metrics_lin)
+    # np.save(logsdir + 'metrics_rf_beta2', metrics_rf)
+    np.save(logsdir + 'N', N)
 
 
 
-# Experiment 2: Fairness on the Colored MNIST dataset 
+# Experiment 3: Fairness on the Colored MNIST dataset
 
 elif experiment == 3:
 

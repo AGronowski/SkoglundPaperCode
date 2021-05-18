@@ -1,0 +1,3 @@
+#!/Users/adamgronowski/Desktop/code/VariationalPrivacyFairness/venv/bin/python
+from numba.pycc import main
+main()

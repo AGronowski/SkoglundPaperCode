@@ -1,4 +1,4 @@
-import sklearn.ensemble, sklearn.linear_model, sklearn.dummy
+import sklearn.ensemble, sklearn.linear_model, sklearn.dummy, sklearn.metrics
 import metrics
 import torch
 import numpy as np
@@ -11,7 +11,10 @@ def evaluate_fair_representations(encoder, train_dataset, test_dataset, device, 
     if encoder is not None:
         encoder = encoder.to('cpu').eval() 
 
-    X, T, S = train_dataset.data, train_dataset.targets, train_dataset.hidden 
+    X, T, S = train_dataset.data, train_dataset.targets, train_dataset.hidden
+
+    #encoder is None for original evaluation using original X
+    #for evaluation after, output from encoder is used
     if encoder is not None:
         Y, _ = encoder(torch.FloatTensor(X)) 
         Y = Y.detach().numpy()
@@ -41,27 +44,29 @@ def evaluate_fair_representations(encoder, train_dataset, test_dataset, device, 
     t_pred_prob = t_predictor.predict_proba(Y) 
     s_pred_prob = s_predictor.predict_proba(Y)
 
-    accuracy = metrics.get_accuracy_numpy(t_pred_prob, T) 
+    accuracy = metrics.get_accuracy_numpy(t_pred_prob, T)
+    #https://stackoverflow.com/questions/56781373/how-to-calculate-auc-for-random-forest-model-in-sklearn
+    auc = sklearn.metrics.roc_auc_score(T, t_pred_prob[:,1])
+
     accuracy_s = metrics.get_accuracy_numpy(s_pred_prob, S) 
     discrimination = metrics.get_discrimination_numpy(t_pred_prob, T, S) 
     error_gap = metrics.get_error_gap_numpy(t_pred_prob, T, S)
     equalized_odds = metrics.get_eq_odds_gap_numpy(t_pred_prob, T, S)
 
-    acc_gap = metrics.get_acc_gap_numpy(t_pred_prob, T, S)
 
     
-    print(f'Accuracy ({predictor_type}): {accuracy}') if verbose else 0 
+    print(f'Accuracy ({predictor_type}): {accuracy}') if verbose else 0
+    print(f'AUC ({predictor_type}): {auc}') if verbose else 0
     print(f'Accuracy on S ({predictor_type}): {accuracy_s}') if verbose else 0 
     print(f'Discrimination ({predictor_type}): {discrimination}') if verbose else 0 
     print(f'Error gap ({predictor_type}): {error_gap}') if verbose else 0 
     print(f'Equalized odds gap ({predictor_type}): {equalized_odds}') if verbose else 0
 
-    print(f'Accuracy gap ({predictor_type}): {acc_gap}') if verbose else 0
 
 
     if encoder is not None:
         encoder = encoder.to(device)
-    return np.array([accuracy, accuracy_s, discrimination, error_gap, equalized_odds])
+    return np.array([accuracy, accuracy_s, discrimination, error_gap, equalized_odds, auc])
 
 def evaluate_private_representations(encoder, train_dataset, test_dataset, device, verbose = False, 
     predictor_type='Linear', respects_MC = True): 

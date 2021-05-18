@@ -55,6 +55,7 @@ class VectorEncoder(torch.nn.Module):
     def __init__(self, input_dim, representation_dim):
         super(VectorEncoder,self).__init__()
 
+        #neural net with single 100 node ReLU layer
         self.func = torch.nn.Sequential(
             torch.nn.Linear(input_dim, 100),
             torch.nn.ReLU(),
@@ -138,6 +139,7 @@ class VecDecoderImage(torch.nn.Module):
 
         return output
 
+#Decoder for the Skoglund I(Z;Y|A) lower bound
 class DecoderVector(torch.nn.Module):
 
     def __init__(self, representation_dim, output_dim, s_dim):
@@ -153,7 +155,23 @@ class DecoderVector(torch.nn.Module):
     
     def forward(self, y, s):
 
-        return self.func(torch.cat((y,s.view(-1,self.s_dim)),1))
+        return self.func(torch.cat((y,s.view(-1,self.s_dim)),1)) #981 x 3 tensor, binary s attribute added to the2 dimensions of Z
+
+# I(Y;Z) bound from IB that doesn't consider A
+class Decoder2(torch.nn.Module):
+
+    def __init__(self, representation_dim =2, output_dim=[1]):
+        super(Decoder2, self).__init__()
+
+
+        self.func = torch.nn.Sequential(
+            torch.nn.Linear(representation_dim, 100),
+            torch.nn.ReLU(),
+            torch.nn.Linear(100, sum(output_dim))
+        )
+
+    def forward(self, z):
+        return self.func(z)
 
 
 class Encoder(torch.nn.Module):
@@ -169,8 +187,7 @@ class Encoder(torch.nn.Module):
         else: 
             self.f_theta = VectorEncoder(input_dim, representation_dim)
         
-        self.y_logvar_theta = torch.nn.Parameter(torch.Tensor([-1.0]))
-
+        self.y_logvar_theta = torch.nn.Parameter(torch.Tensor([-1.0])) #starts off at -1, changes with gradient descent
     def encode(self, x):
 
         y_mean = self.f_theta(x)
@@ -178,15 +195,19 @@ class Encoder(torch.nn.Module):
 
     def reparametrize(self, y_mean): 
 
-        noise = torch.randn_like(y_mean) + self.y_logvar_theta
-        y = y_mean + noise 
-        return y 
+        #standard normal distribution
+        random = torch.randn_like(y_mean) # 981 x 2 tensor (mh)
+        noise = random + self.y_logvar_theta
+        y = y_mean + noise
+        return y
     
     def forward(self, x, noise=True):
 
-        y_mean = self.encode(x) 
+        y_mean = self.encode(x) # 981 x 2 tensor (mh)
         y = self.reparametrize(y_mean) if noise else y_mean 
-        return y, y_mean 
+        return y, y_mean
+
+
 
 class Decoder(torch.nn.Module):
 

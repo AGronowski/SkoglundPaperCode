@@ -11,7 +11,7 @@ np.random.seed(2020)
 
 def weight_init(m):
     '''
-    This function is used to initialize the netwok weights
+    This function is used to initialize the network weights
     '''
 
     if isinstance(m,torch.nn.Conv2d):
